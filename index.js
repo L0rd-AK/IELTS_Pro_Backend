@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+const SSLCommerzPayment = require('sslcommerz-lts')
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -32,7 +33,9 @@ async function connectDB() {
 }
 connectDB();
 
-
+const store_id = process.env.STORE_ID
+const store_passwd = process.env.STORE_PASS
+const is_live = false //true for live, false for sandbox
 
 async function run() {
   try {
@@ -40,6 +43,7 @@ async function run() {
     const blogs = client.db("IELTS").collection("blogs");
     const dashboard = client.db("IELTS").collection("dashboard");
     const test_history = client.db("IELTS").collection("test_history");
+    const payments = client.db("IELTS").collection("payments");
     
     // =================== crud operations ======================
     
@@ -255,6 +259,87 @@ async function run() {
       res.send(result);
     });
     
+    // ========================Payment Routes=======================
+    app.post('/create-payment', async(req, res) =>{
+      const payment = req.body;
+      const paymentId = new ObjectId().toString();
+      
+      const data = {
+        total_amount: payment.amount,
+        currency: 'BDT',
+        tran_id: paymentId, // use unique tran_id for each transaction
+        success_url: `http://localhost:5000/payment/success/${paymentId}`,
+        fail_url: `http://localhost:5000/payment/fail/${paymentId}`,
+        cancel_url: `http://localhost:5000/payment/cancel/${paymentId}`,
+        ipn_url: 'http://localhost:5000/ipn',
+        shipping_method: 'NA',
+        product_name: payment.packageName,
+        product_category: 'Education',
+        product_profile: 'IELTS Course',
+        cus_name: payment.name,
+        cus_email: payment.email,
+        cus_add1: payment.address || 'NA',
+        cus_phone: payment.phone || 'NA',
+        ship_name: 'NA',
+        ship_add1: 'NA',
+        ship_city: 'NA',
+        ship_postcode: 'NA',
+        ship_country: 'NA',
+      };
+
+      const sslcz = new SSLCommerzPayment(store_id, store_passwd, is_live)
+      const apiResponse = await sslcz.init(data);
+      
+      // Store payment info in database
+      const paymentInfo = {
+        ...payment,
+        paymentId,
+        transactionId: paymentId,
+        status: 'pending',
+        createdAt: new Date()
+      }
+      const result = await payments.insertOne(paymentInfo);
+      
+      res.send({ url: apiResponse.GatewayPageURL });
+    });
+
+    // Payment success route
+    app.post("/payment/success/:tranId", async (req, res) => {
+      const result = await payments.updateOne(
+        { transactionId: req.params.tranId },
+        {
+          $set: {
+            status: 'success',
+            paidAt: new Date()
+          }
+        }
+      );
+      
+      res.redirect(`http://localhost:9002/payment/success/${req.params.tranId}`);
+    });
+
+    // Payment fail route
+    app.post("/payment/fail/:tranId", async (req, res) => {
+      const result = await payments.updateOne(
+        { transactionId: req.params.tranId },
+        {
+          $set: {
+            status: 'failed'
+          }
+        }
+      );
+      
+      res.redirect(`http://localhost:9002/payment/fail/${req.params.tranId}`);
+    });
+
+    // Get payment status
+    app.get("/payment/:tranId", async (req, res) => {
+      const payment = await payments.findOne(
+        { transactionId: req.params.tranId }
+      );
+      res.send(payment);
+    });
+
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
     );
