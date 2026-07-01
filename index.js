@@ -11,7 +11,11 @@ const port = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-const uri = `mongodb+srv://sanaullahiftasunny:2KPba6JIjGh34vVV@cluster0.4ozfa3t.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
+const uri = process.env.MONGODB_URI;
+if (!uri) {
+  console.error("Missing MONGODB_URI environment variable. Set it in .env");
+  process.exit(1);
+}
 
 // Create a MongoClient
 const client = new MongoClient(uri, {
@@ -35,7 +39,11 @@ connectDB();
 
 const store_id = process.env.STORE_ID
 const store_passwd = process.env.STORE_PASS
-const is_live = false //true for live, false for sandbox
+const is_live = process.env.IS_LIVE === 'true' //true for live, false for sandbox
+
+// Base URLs (override in production via env)
+const BACKEND_URL = process.env.BACKEND_URL || `http://localhost:${port}`;
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:9002';
 
 async function run() {
   try {
@@ -268,10 +276,10 @@ async function run() {
         total_amount: payment.amount,
         currency: 'BDT',
         tran_id: paymentId, // use unique tran_id for each transaction
-        success_url: `http://localhost:5000/payment/success/${paymentId}`,
-        fail_url: `http://localhost:5000/payment/fail/${paymentId}`,
-        cancel_url: `http://localhost:5000/payment/cancel/${paymentId}`,
-        ipn_url: 'http://localhost:5000/ipn',
+        success_url: `${BACKEND_URL}/payment/success/${paymentId}`,
+        fail_url: `${BACKEND_URL}/payment/fail/${paymentId}`,
+        cancel_url: `${BACKEND_URL}/payment/cancel/${paymentId}`,
+        ipn_url: `${BACKEND_URL}/ipn`,
         shipping_method: 'NA',
         product_name: payment.packageName,
         product_category: 'Education',
@@ -315,7 +323,7 @@ async function run() {
         }
       );
       
-      res.redirect(`http://localhost:9002/payment/success/${req.params.tranId}`);
+      res.redirect(`${FRONTEND_URL}/payment/success/${req.params.tranId}`);
     });
 
     // Payment fail route
@@ -329,7 +337,7 @@ async function run() {
         }
       );
       
-      res.redirect(`http://localhost:9002/payment/fail/${req.params.tranId}`);
+      res.redirect(`${FRONTEND_URL}/payment/fail/${req.params.tranId}`);
     });
 
     // Get payment status
